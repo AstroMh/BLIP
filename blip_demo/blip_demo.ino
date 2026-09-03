@@ -1,15 +1,20 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
 #include <Adafruit_SSD1306.h>
 #include <Adafruit_GFX.h>
 #include "esp_random.h"
 #include "bootloader_random.h" 
-#include <FluxGarage_RoboEyes.h>
 #include "SoundLibrary.h"
+
+#include <FluxGarage_RoboEyes.h>
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 #define OLED_RESET -1
 #define TOUCH_PIN 2
 #define BUZZER_PIN 4
+#define buttonPin 5
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 RoboEyes<Adafruit_SSD1306> roboEyes(display);
@@ -33,11 +38,32 @@ bool soundPlayed = false;
 const int debounceDelay = 50;
 const unsigned long HOLD_TIME = 3000;  
 
+
+const char* ssid = "WIFI_SSID";   // Replace Wi-Fi name
+const char* password = "WIFI_PASSWORD";   // Replace Wi-Fi password
+const char* apiKey = "API_KEY"; // Add your API key over here 
+const char* city = "Moscow";  // Change the city if you like
+
+String weatherDescription = "";
+float temperature = 0;
+int weatherCondition = 0; 
+
+unsigned long lastWeatherUpdate = 0;
+const unsigned long weatherUpdateInterval = 600000;
+
+bool showingWeather = false;
+unsigned long weatherScreenStart = 0;
+const unsigned long WEATHER_SCREEN_TIME = 5000;
+
+bool lastButtonState = LOW;
+bool currentButtonState = LOW;
+
 void setup() {
   Serial.begin(115200);
   bootloader_random_enable();
 
   pinMode(TOUCH_PIN, INPUT_PULLUP);
+  pinMode(buttonPin, INPUT);
   soundPlayer.begin(BUZZER_PIN);
 
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
@@ -49,24 +75,68 @@ void setup() {
   roboEyes.setPosition(DEFAULT);
   roboEyes.setMood(DEFAULT);
   roboEyes.open();
+    
+  connectToWiFi();
+  
+  if (WiFi.status() == WL_CONNECTED) {
+    fetchWeather();
+    displayWeather();
+  } else {
+    display.clearDisplay();
+    display.setTextColor(SSD1306_WHITE);
+    display.setTextSize(1);
+    display.setCursor(0, 0);
+    display.println("No Wi-Fi!");
+    display.println("Please connect");
+    display.println("to network");
+    display.display();
+  }
 
   lastBlinkTime = millis();
   lastLookTime = millis();
+  lastWeatherUpdate = millis();
+
 }
 
 void loop() {
-  unsigned long currentTime = millis();  
-  
+  unsigned long currentTime = millis();
+
   readTouch(currentTime);
-  
   updateRobotState(currentTime);
-  
-  roboEyes.update();
-  handleBlink(currentTime);
-  handleLook(currentTime);
-  
+
+  currentButtonState = digitalRead(buttonPin);
+
+  if (currentButtonState == HIGH && lastButtonState == LOW && !showingWeather) {
+    showingWeather = true;
+    weatherScreenStart = currentTime;
+
+    fetchWeather();
+    displayWeather();
+  }
+
+  lastButtonState = currentButtonState;
+
+  if (showingWeather) {
+
+    if (currentTime - weatherScreenStart >= WEATHER_SCREEN_TIME) {
+      showingWeather = false;
+
+      display.clearDisplay();
+      display.display();
+
+      roboEyes.setPosition(DEFAULT);
+      roboEyes.open();
+    }
+  }
+
+  if (!showingWeather) {
+    roboEyes.update();
+    handleBlink(currentTime);
+    handleLook(currentTime);
+  }
+
   handleSound(currentTime);
-  
+
   delay(5);
 }
 
@@ -111,7 +181,7 @@ void updateRobotState(unsigned long currentTime) {
       static unsigned long lastProgressTime = 0;
       if (currentTime - lastProgressTime > 500) {  // Show every 0.5 seconds
         float progress = ((float)(currentTime - touchStartTime) / HOLD_TIME) * 100;
-        Serial.print("⏳ Holding: ");
+        Serial.print("Holding: ");
         Serial.print(progress, 0);
         Serial.println("%");
         lastProgressTime = currentTime;
@@ -151,9 +221,9 @@ void handleBlink(unsigned long currentTime) {
 void handleLook(unsigned long currentTime) {
   if (currentTime - lastLookTime >= lookInterval) {
     int direction = random(4);
-    if (direction == 0) roboEyes.setPosition(W);
-    else if (direction == 1) roboEyes.setPosition(E);
-    else if (direction == 2) roboEyes.setPosition(S);
+    if (direction == 0) roboEyes.setPosition(ROBO_W);
+    else if (direction == 1) roboEyes.setPosition(ROBO_E);
+    else if (direction == 2) roboEyes.setPosition(ROBO_S);
     else roboEyes.setPosition(DEFAULT);
     
     lastLookTime = currentTime;
@@ -170,4 +240,194 @@ uint32_t generateRandomNumber(uint32_t min, uint32_t max) {
     random_num = esp_random(); 
   } while (random_num >= limit);
   return min + (random_num % range);
+}
+
+
+// ============ WIFI and Weather functions ==================
+
+void connectToWiFi() {
+  Serial.println("[+] Connecting to Wifi...");
+  WiFi.begin(ssid, password);
+
+    int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+    delay(500);
+    Serial.print(".");
+    attempts++;
+  }
+  
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\n [+] Connected to Wi-Fi!");
+    Serial.print("IP Address: ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("\n [-] Failed to connect to Wi-Fi");
+  }
+}
+
+void fetchWeather() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("Wi-Fi not connected. Skipping weather update.");
+    return;
+  }
+
+  HTTPClient http;
+  String url = "http://api.openweathermap.org/data/2.5/weather?q=" + String(city) + "&appid=" + String(apiKey) + "&units=metric";
+  
+  http.begin(url);
+  int httpResponseCode = http.GET();
+  
+  if (httpResponseCode == 200) {
+    String payload = http.getString();
+    Serial.println("[+] Weather data received!");
+    
+    StaticJsonDocument<1024> doc;
+    DeserializationError error = deserializeJson(doc, payload);
+    
+    if (!error) {
+      temperature = doc["main"]["temp"];
+      
+      const char* desc = doc["weather"][0]["description"];
+      weatherDescription = String(desc);
+      
+      int conditionId = doc["weather"][0]["id"];
+      weatherCondition = getWeatherCondition(conditionId);
+      
+      Serial.print("Temperature: ");
+      Serial.print(temperature);
+      Serial.println("°C");
+      Serial.print("Weather: ");
+      Serial.println(weatherDescription);
+      Serial.print("Condition code: ");
+      Serial.println(weatherCondition);
+      
+    } else {
+      Serial.println("[-] Failed to parse JSON");
+    }
+  } else {
+    Serial.print("[-] HTTP error: ");
+    Serial.println(httpResponseCode);
+  }
+  
+  http.end();
+}
+
+int getWeatherCondition(int conditionId) {
+  // Weather condition codes from OpenWeatherMap
+  // https://openweathermap.org/weather-conditions
+  if (conditionId >= 200 && conditionId < 300) return 3; // Thunderstorm
+  if (conditionId >= 300 && conditionId < 600) return 2; // Rain/Drizzle
+  if (conditionId >= 600 && conditionId < 700) return 4; // Snow
+  if (conditionId >= 700 && conditionId < 800) return 5; // Mist/Fog
+  if (conditionId == 800) return 0; // Clear sky
+  if (conditionId > 800 && conditionId < 900) return 1; // Clouds
+  return 0;
+}
+
+void displayWeather() {
+  display.clearDisplay();
+  
+  display.setTextColor(SSD1306_WHITE);
+  display.setTextSize(1);
+  
+  display.setCursor(0, 0);
+  display.println("Weather: " + String(city));
+  
+  display.setTextSize(2);
+  display.setCursor(0, 24);
+  display.print(temperature, 1);
+  display.println("°C");
+  
+  display.setTextSize(1);
+  display.setCursor(0, 48);
+  
+  if (weatherDescription.length() > 16) {
+    weatherDescription = weatherDescription.substring(0, 16);
+  }
+  display.println(weatherDescription);
+  
+  drawWeatherIcon(weatherCondition);
+  
+  display.display();
+}
+
+void drawWeatherIcon(int condition) {
+  int iconX = 100;
+  int iconY = 18;
+  int iconSize = 20;
+  
+  switch(condition) {
+    case 0: // Sun
+      display.drawCircle(iconX + 10, iconY + 10, 8, SSD1306_WHITE);
+      display.drawLine(iconX + 10, iconY, iconX + 10, iconY - 3, SSD1306_WHITE);
+      display.drawLine(iconX + 10, iconY + 20, iconX + 10, iconY + 23, SSD1306_WHITE);
+      display.drawLine(iconX, iconY + 10, iconX - 3, iconY + 10, SSD1306_WHITE);
+      display.drawLine(iconX + 20, iconY + 10, iconX + 23, iconY + 10, SSD1306_WHITE);
+      display.drawLine(iconX + 3, iconY + 3, iconX + 1, iconY + 1, SSD1306_WHITE);
+      display.drawLine(iconX + 17, iconY + 3, iconX + 19, iconY + 1, SSD1306_WHITE);
+      display.drawLine(iconX + 3, iconY + 17, iconX + 1, iconY + 19, SSD1306_WHITE);
+      display.drawLine(iconX + 17, iconY + 17, iconX + 19, iconY + 19, SSD1306_WHITE);
+      break;
+      
+    case 1: // Clouds
+      display.fillCircle(iconX + 8, iconY + 12, 6, SSD1306_WHITE);
+      display.fillCircle(iconX + 15, iconY + 10, 8, SSD1306_WHITE);
+      display.fillCircle(iconX + 22, iconY + 12, 6, SSD1306_WHITE);
+      display.fillRect(iconX + 5, iconY + 12, 20, 5, SSD1306_WHITE);
+      break;
+      
+    case 2: // Rain
+      display.fillCircle(iconX + 8, iconY + 10, 6, SSD1306_WHITE);
+      display.fillCircle(iconX + 15, iconY + 8, 8, SSD1306_WHITE);
+      display.fillCircle(iconX + 22, iconY + 10, 6, SSD1306_WHITE);
+      display.fillRect(iconX + 5, iconY + 10, 20, 5, SSD1306_WHITE);
+      // Rain drops
+      display.drawLine(iconX + 5, iconY + 18, iconX + 4, iconY + 22, SSD1306_WHITE);
+      display.drawLine(iconX + 12, iconY + 18, iconX + 11, iconY + 22, SSD1306_WHITE);
+      display.drawLine(iconX + 19, iconY + 18, iconX + 18, iconY + 22, SSD1306_WHITE);
+      display.drawLine(iconX + 26, iconY + 18, iconX + 25, iconY + 22, SSD1306_WHITE);
+      break;
+      
+    case 3: // Storm
+      display.fillCircle(iconX + 8, iconY + 10, 6, SSD1306_WHITE);
+      display.fillCircle(iconX + 15, iconY + 8, 8, SSD1306_WHITE);
+      display.fillCircle(iconX + 22, iconY + 10, 6, SSD1306_WHITE);
+      display.fillRect(iconX + 5, iconY + 10, 20, 5, SSD1306_WHITE);
+      // Lightning
+      display.drawLine(iconX + 12, iconY + 15, iconX + 8, iconY + 22, SSD1306_WHITE);
+      display.drawLine(iconX + 8, iconY + 22, iconX + 14, iconY + 20, SSD1306_WHITE);
+      display.drawLine(iconX + 14, iconY + 20, iconX + 10, iconY + 28, SSD1306_WHITE);
+      break;
+      
+    case 4: // Snow
+      display.fillCircle(iconX + 8, iconY + 10, 6, SSD1306_WHITE);
+      display.fillCircle(iconX + 15, iconY + 8, 8, SSD1306_WHITE);
+      display.fillCircle(iconX + 22, iconY + 10, 6, SSD1306_WHITE);
+      display.fillRect(iconX + 5, iconY + 10, 20, 5, SSD1306_WHITE);
+      // Snowflakes
+      display.drawLine(iconX + 5, iconY + 18, iconX + 3, iconY + 22, SSD1306_WHITE);
+      display.drawLine(iconX + 5, iconY + 22, iconX + 3, iconY + 18, SSD1306_WHITE);
+      display.drawLine(iconX + 12, iconY + 18, iconX + 10, iconY + 22, SSD1306_WHITE);
+      display.drawLine(iconX + 12, iconY + 22, iconX + 10, iconY + 18, SSD1306_WHITE);
+      display.drawLine(iconX + 19, iconY + 18, iconX + 17, iconY + 22, SSD1306_WHITE);
+      display.drawLine(iconX + 19, iconY + 22, iconX + 17, iconY + 18, SSD1306_WHITE);
+      break;
+      
+    case 5: // Mist
+      display.fillCircle(iconX + 8, iconY + 10, 6, SSD1306_WHITE);
+      display.fillCircle(iconX + 15, iconY + 8, 8, SSD1306_WHITE);
+      display.fillCircle(iconX + 22, iconY + 10, 6, SSD1306_WHITE);
+      display.fillRect(iconX + 5, iconY + 10, 20, 5, SSD1306_WHITE);
+      // Fog lines
+      display.drawLine(iconX + 2, iconY + 18, iconX + 28, iconY + 18, SSD1306_WHITE);
+      display.drawLine(iconX + 5, iconY + 22, iconX + 25, iconY + 22, SSD1306_WHITE);
+      break;
+      
+    default:
+      break;
+  }
+}
+void showWeatherOnScreen() {
+  displayWeather();
+  delay(5000);
 }
