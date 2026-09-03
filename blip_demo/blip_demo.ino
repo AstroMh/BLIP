@@ -129,7 +129,6 @@ void handleSound(unsigned long currentTime) {
       soundPlayer.playRandomSound(currentTime);
       soundTriggered = true;
       soundPlayed = true;
-      Serial.println("🔊 Playing random angry sound!");
     }
     
     if (soundPlayer.isPlaying()) {
