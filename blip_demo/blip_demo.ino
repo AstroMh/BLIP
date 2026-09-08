@@ -16,6 +16,8 @@
 #define TOUCH_PIN 2
 #define BUZZER_PIN 4
 #define buttonPin 5
+#define TOUCH_PIN_1 16
+#define TOUCH_PIN_2 17
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 TwoWire MPUWire = TwoWire(1);
@@ -72,6 +74,36 @@ MPUDirection currentMPUDirection = MPU_NONE;
 bool sweatingActive = false;
 bool sweatingTriggered = false;
 
+// ========================= Petting variables ====================
+
+bool lastTouchState1 = false;
+bool lastTouchState2 = false;
+bool currentTouchState1 = false;
+bool currentTouchState2 = false;
+
+unsigned long touch1Start = 0;
+unsigned long touch2Start = 0;
+bool touch1Held = false;
+bool touch2Held = false;
+
+unsigned long lastPetDebounce1 = 0;
+unsigned long lastPetDebounce2 = 0;
+
+const int PET_COUNT_REQUIRED = 15; 
+int petStrokeCount = 0;
+
+enum PetState {
+  PET_NONE,
+  PET_WAITING_FOR_TOUCH_1,
+  PET_WAITING_FOR_TOUCH_2
+};
+
+PetState petSequenceState = PET_NONE;
+unsigned long petSequenceTimer = 0;
+const unsigned long PET_TIMEOUT = 3000;
+bool heartEyesTriggered = false;
+
+
 void setup() {
   Serial.begin(115200);
   bootloader_random_enable();
@@ -79,6 +111,10 @@ void setup() {
   pinMode(TOUCH_PIN, INPUT_PULLUP);
   pinMode(buttonPin, INPUT);
   soundPlayer.begin(BUZZER_PIN);
+
+  // for petting
+  pinMode(TOUCH_PIN_1, INPUT_PULLUP);
+  pinMode(TOUCH_PIN_2, INPUT_PULLUP);
 
   Wire.begin(21, 22);
 
@@ -132,6 +168,7 @@ void loop() {
   mpu.update();
 
   readTouch(currentTime);
+  readPetSensors(currentTime); 
   updateRobotState(currentTime);
 
   currentButtonState = digitalRead(buttonPin);
@@ -162,6 +199,7 @@ void loop() {
     roboEyes.update();
     gravityEyesDirection();
     handleBlink(currentTime);
+    checkHeartEyesReset(currentTime);
 
     if (currentMPUDirection == MPU_NONE) {
       handleLook(currentTime);
@@ -374,7 +412,7 @@ void gravityEyesDirection() {
       case MPU_RIGHT:
         Serial.println("MPU DIRECTION: DOWN");
         roboEyes.setPosition(ROBO_S);
-        roboEyes.anim_heartEyes(); 
+        roboEyes.setMood(HAPPY); 
         break;
 
       case MPU_DOWN:
@@ -607,4 +645,99 @@ void drawWeatherIcon(int condition) {
 void showWeatherOnScreen() {
   displayWeather();
   delay(5000);
+}
+
+
+// ======================== Petting functions ===========================
+
+
+void readPetSensors(unsigned long currentTime) {
+  bool rawTouch1 = (digitalRead(TOUCH_PIN_1) == HIGH);
+  bool rawTouch2 = (digitalRead(TOUCH_PIN_2) == HIGH);
+  
+  if (rawTouch1 != lastTouchState1) {
+    lastPetDebounce1 = currentTime;
+  }
+  if (rawTouch2 != lastTouchState2) {
+    lastPetDebounce2 = currentTime;
+  }
+  
+  if ((currentTime - lastPetDebounce1) > 50) {
+    currentTouchState1 = rawTouch1;
+  }
+  if ((currentTime - lastPetDebounce2) > 50) {
+    currentTouchState2 = rawTouch2;
+  }
+  
+  if (!heartEyesTriggered) {
+    switch(petSequenceState) {
+      case PET_NONE:
+        if (currentTouchState1 == HIGH) {
+          petSequenceState = PET_WAITING_FOR_TOUCH_2;
+          petSequenceTimer = currentTime;
+          petStrokeCount = 1;
+          Serial.print("Pet stroke ");
+          Serial.print(petStrokeCount);
+          Serial.print("/");
+          Serial.println(PET_COUNT_REQUIRED);
+        }
+        break;
+        
+      case PET_WAITING_FOR_TOUCH_2:
+        if (currentTouchState2 == HIGH) {
+          petStrokeCount++;
+          petSequenceState = PET_WAITING_FOR_TOUCH_1;
+          petSequenceTimer = currentTime;
+          
+          if (petStrokeCount >= PET_COUNT_REQUIRED) {
+            petSequenceState = PET_NONE;
+            heartEyesTriggered = true;
+            roboEyes.anim_heartEyes();
+            Serial.println("🎉 PETTING COMPLETE! Heart eyes activated!");
+          } else {
+            Serial.print("Pet stroke ");
+            Serial.print(petStrokeCount);
+            Serial.print("/");
+            Serial.println(PET_COUNT_REQUIRED);
+          }
+        }
+        break;
+        
+      case PET_WAITING_FOR_TOUCH_1:
+        if (currentTouchState1 == HIGH) {
+          petSequenceState = PET_WAITING_FOR_TOUCH_2;
+          petSequenceTimer = currentTime;
+        }
+        break;
+    }
+  }
+  
+  if (petSequenceState != PET_NONE) {
+    if ((currentTime - petSequenceTimer) > PET_TIMEOUT) {
+      petSequenceState = PET_NONE;
+      petStrokeCount = 0;
+      Serial.println("Pet sequence timeout - resetting");
+    }
+  }
+  
+  lastTouchState1 = rawTouch1;
+  lastTouchState2 = rawTouch2;
+}
+
+void checkHeartEyesReset(unsigned long currentTime) {
+  static unsigned long heartEyesStart = 0;
+  
+  if (heartEyesTriggered) {
+    if (heartEyesStart == 0) {
+      heartEyesStart = currentTime;
+    }
+    
+    if (currentTime - heartEyesStart > 5000) {
+      heartEyesTriggered = false;
+      heartEyesStart = 0;
+      petStrokeCount = 0;
+      petSequenceState = PET_NONE;
+      Serial.println("Heart eyes reset - ready for next pet");
+    }
+  }
 }
