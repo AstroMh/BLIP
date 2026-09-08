@@ -6,7 +6,7 @@
 #include "esp_random.h"
 #include "bootloader_random.h"
 #include "SoundLibrary.h"
-#include <FluxGarage_RoboEyes.h>
+#include "lib/FluxGarage_RoboEyes.h"
 #include <Wire.h>
 #include <MPU6050_light.h>
 
@@ -69,6 +69,9 @@ enum MPUDirection {
 
 MPUDirection currentMPUDirection = MPU_NONE;
 
+bool sweatingActive = false;
+bool sweatingTriggered = false;
+
 void setup() {
   Serial.begin(115200);
   bootloader_random_enable();
@@ -98,6 +101,15 @@ void setup() {
   if (WiFi.status() == WL_CONNECTED) {
     fetchWeather();
     displayWeather();
+
+      // Check temperature and enable sweat if above 25°C
+    if (temperature > 25.0) {
+      roboEyes.setMood(TIRED);
+      roboEyes.setSweat(true);
+      sweatingActive = true;
+      sweatingTriggered = true;
+      Serial.println("Sweat activated! Temperature: " + String(temperature) + "°C");
+    }
   } else {
     display.clearDisplay();
     display.setTextColor(SSD1306_WHITE);
@@ -157,6 +169,16 @@ void loop() {
   }
 
   handleSound(currentTime);
+
+  // Periodic sweat check - every 60 seconds
+  static unsigned long lastSweatCheck = 0;
+  if (currentTime - lastSweatCheck >= 60000) {
+    if (WiFi.status() == WL_CONNECTED) {
+      fetchWeather();
+      updateSweatState();
+    }
+    lastSweatCheck = currentTime;
+  }
 
   delay(5);
 }
@@ -344,21 +366,21 @@ void gravityEyesDirection() {
 
     switch (currentMPUDirection) {
       case MPU_UP:
-        Serial.println("MPU DIRECTION: LEFT");
+        Serial.println("MPU DIRECTION: RIGHT");
+        roboEyes.setCuriosity(true);
         roboEyes.setPosition(ROBO_E);
-        roboEyes.setMood(ANGRY);
         break;
 
       case MPU_RIGHT:
-        Serial.println("MPU DIRECTION: RIGHT");
+        Serial.println("MPU DIRECTION: DOWN");
         roboEyes.setPosition(ROBO_S);
-        roboEyes.setMood(HAPPY);
+        roboEyes.anim_heartEyes(); 
         break;
 
       case MPU_DOWN:
-        Serial.println("MPU DIRECTION: DOWN");
+        Serial.println("MPU DIRECTION: LEFT");
         roboEyes.setPosition(ROBO_W);
-        roboEyes.setMood(TIRED);
+        roboEyes.setCuriosity(true);
         break;
 
       case MPU_LEFT:
@@ -370,6 +392,7 @@ void gravityEyesDirection() {
       case MPU_NONE:
         Serial.println("MPU DIRECTION: CENTER");
         roboEyes.setPosition(DEFAULT);
+        roboEyes.setCuriosity(false);
         roboEyes.setMood(DEFAULT);
         break;
     }
@@ -451,6 +474,22 @@ void fetchWeather() {
   }
 
   http.end();
+}
+
+void updateSweatState() {
+  if (temperature > 25.0) {
+    if (!sweatingActive) {
+      roboEyes.setSweat(true);
+      sweatingActive = true;
+      Serial.println("Sweat ON - Temperature: " + String(temperature) + "°C");
+    }
+  } else {
+    if (sweatingActive) {
+      roboEyes.setSweat(false);
+      sweatingActive = false;
+      Serial.println("Sweat OFF - Temperature: " + String(temperature) + "°C");
+    }
+  }
 }
 
 int getWeatherCondition(int conditionId) {
