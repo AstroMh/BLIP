@@ -13,7 +13,7 @@ struct SoundEffect {
 
 class SoundPlayer {
   private:
-    static const int MAX_SOUNDS = 10;
+    static const int MAX_SOUNDS = 16;
     SoundEffect* soundLibrary[MAX_SOUNDS];
     int soundCount;
     
@@ -49,5 +49,12 @@ extern SoundEffect soundGlitchy;
 extern SoundEffect soundAlarm;
 extern SoundEffect soundComplaint;
 extern SoundEffect soundNagging;
+extern SoundEffect soundHappyChirp;
+extern SoundEffect soundFairyTale;
+extern SoundEffect soundR2D2Happy;
+extern SoundEffect soundR2D2Curious;
+extern SoundEffect soundGiggle;
+extern SoundEffect soundMagical;
+extern SoundEffect soundJoyful;
 
 #endif 

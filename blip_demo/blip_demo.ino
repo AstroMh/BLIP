@@ -61,6 +61,10 @@ const unsigned long WEATHER_SCREEN_TIME = 5000;
 bool lastButtonState = LOW;
 bool currentButtonState = LOW;
 
+
+int queuedSound = -1;
+
+
 enum MPUDirection {
   MPU_NONE,
   MPU_LEFT,
@@ -207,6 +211,7 @@ void loop() {
   }
 
   handleSound(currentTime);
+  updateSound();   
 
   // Periodic sweat check - every 60 seconds
   static unsigned long lastSweatCheck = 0;
@@ -276,6 +281,16 @@ void updateRobotState(unsigned long currentTime) {
 }
 
 void handleSound(unsigned long currentTime) {
+  // Priority 1: a specific sound was requested (petting, greeting, etc.)
+  if (queuedSound >= 0) {
+    soundPlayer.playSoundByIndex(queuedSound, currentTime);
+    if (soundPlayer.isFinished()) {
+      queuedSound = -1;
+    }
+    return;   // don't let angry logic interfere
+  }
+
+  // Priority 2: angry random sound
   if (isAngry) {
     if (!soundTriggered) {
       soundPlayer.reset();
@@ -283,7 +298,6 @@ void handleSound(unsigned long currentTime) {
       soundTriggered = true;
       soundPlayed = true;
     }
-
     if (soundPlayer.isPlaying()) {
       soundPlayer.playRandomSound(currentTime);
     }
@@ -650,6 +664,23 @@ void showWeatherOnScreen() {
 
 // ======================== Petting functions ===========================
 
+void triggerSound(int index) {
+  queuedSound = index;
+  soundPlayer.reset();          // clear any previous playback
+}
+
+void updateSound() {
+  unsigned long now = millis();
+  if (queuedSound >= 0) {
+    soundPlayer.playSoundByIndex(queuedSound, now);
+    if (soundPlayer.isFinished()) {
+      queuedSound = -1;         // done, allow random again
+    }
+  } else {
+    soundPlayer.playRandomSound(now);
+  }
+}
+
 
 void readPetSensors(unsigned long currentTime) {
   bool rawTouch1 = (digitalRead(TOUCH_PIN_1) == HIGH);
@@ -693,7 +724,8 @@ void readPetSensors(unsigned long currentTime) {
             petSequenceState = PET_NONE;
             heartEyesTriggered = true;
             roboEyes.anim_heartEyes();
-            Serial.println("🎉 PETTING COMPLETE! Heart eyes activated!");
+            triggerSound();
+            Serial.println("PETTING COMPLETE! Heart eyes activated!");
           } else {
             Serial.print("Pet stroke ");
             Serial.print(petStrokeCount);

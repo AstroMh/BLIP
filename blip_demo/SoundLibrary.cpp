@@ -1,6 +1,56 @@
 #include "SoundLibrary.h"
 
 
+SoundEffect soundHappyChirp = {
+  "Happy Chirp",
+  {523, 659, 784, 1046, 784, 659, 523, 659, 784, 1046, 1318, 1046, 784, 659, 523, 0},
+  {80, 80, 80, 120, 80, 80, 80, 80, 80, 120, 160, 120, 80, 80, 160, 40},
+  16, 2
+};
+
+SoundEffect soundFairyTale = {
+  "Fairy Tale Sparkle",
+  {784, 988, 1175, 1568, 1175, 988, 784, 988, 1175, 1568, 1976, 1568, 1175, 988, 784, 0},
+  {60, 60, 60, 140, 60, 60, 60, 60, 60, 140, 200, 140, 60, 60, 220, 30},
+  16, 2
+};
+
+SoundEffect soundR2D2Happy = {
+  "R2D2 Happy",
+  {1200, 1800, 1400, 2200, 1600, 2400, 2000, 2600, 1800, 2200, 1600, 2000, 2400, 1800, 2000, 0},
+  {40, 30, 40, 30, 50, 40, 40, 50, 40, 40, 50, 40, 40, 50, 80, 20},
+  16, 3
+};
+
+SoundEffect soundR2D2Curious = {
+  "R2D2 Curious",
+  {800, 1600, 900, 1800, 1000, 2000, 1200, 2200, 1400, 1800, 1600, 2000, 1800, 2200, 2000, 0},
+  {60, 40, 60, 40, 70, 50, 70, 50, 60, 40, 60, 40, 60, 50, 100, 20},
+  16, 2
+};
+
+SoundEffect soundGiggle = {
+  "Giggle",
+  {880, 988, 880, 988, 880, 988, 880, 988, 1046, 988, 880, 784, 880, 988, 1046, 0},
+  {50, 40, 50, 40, 50, 40, 50, 40, 80, 60, 60, 60, 50, 40, 120, 30},
+  16, 2
+};
+
+SoundEffect soundMagical = {
+  "Magical Twinkle",
+  {1046, 1318, 1568, 2093, 1568, 1318, 1046, 1318, 1568, 2093, 2637, 2093, 1568, 1318, 1046, 0},
+  {60, 60, 60, 150, 60, 60, 60, 60, 60, 150, 220, 150, 60, 60, 200, 30},
+  16, 1
+};
+
+SoundEffect soundJoyful = {
+  "Joyful Bounce",
+  {659, 784, 988, 784, 988, 1175, 988, 1175, 1318, 1175, 1318, 1568, 1318, 1175, 988, 784},
+  {70, 70, 100, 70, 70, 100, 70, 70, 100, 70, 70, 140, 70, 70, 100, 160},
+  16, 2
+};
+
+
 SoundEffect soundWhiny = {
   "Whiny Complaint",
   {400, 450, 400, 500, 400, 550, 400, 600, 400, 550, 400, 500},
@@ -82,6 +132,15 @@ void SoundPlayer::begin(int pin) {
   addSound(&soundAlarm);
   addSound(&soundComplaint);
   addSound(&soundNagging);
+
+
+  addSound(&soundHappyChirp);
+  addSound(&soundFairyTale);
+  addSound(&soundR2D2Happy);
+  addSound(&soundR2D2Curious);
+  addSound(&soundGiggle);
+  addSound(&soundMagical);
+  addSound(&soundJoyful);
 }
 
 void SoundPlayer::addSound(SoundEffect* sound) {
