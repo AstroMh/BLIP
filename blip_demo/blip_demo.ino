@@ -724,7 +724,7 @@ void readPetSensors(unsigned long currentTime) {
             petSequenceState = PET_NONE;
             heartEyesTriggered = true;
             roboEyes.anim_heartEyes();
-            triggerSound();
+            triggerSound(10);
             Serial.println("PETTING COMPLETE! Heart eyes activated!");
           } else {
             Serial.print("Pet stroke ");
